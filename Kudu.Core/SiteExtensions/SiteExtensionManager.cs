@@ -264,10 +264,11 @@ namespace Kudu.Core.SiteExtensions
         {
             ITracer tracer = _traceFactory.GetTracer();
 
+            SiteExtensionInfo result = null;
             if (_preInstalledExtensionDictionary.ContainsKey(id))
             {
                 tracer.Trace("Pre-installed site extension found: {0}, not going to perform new installation.", id);
-                return EnablePreInstalledExtension(_preInstalledExtensionDictionary[id]);
+                result = EnablePreInstalledExtension(_preInstalledExtensionDictionary[id]);
             }
             else
             {
@@ -276,51 +277,69 @@ namespace Kudu.Core.SiteExtensions
                 {
                     // package already installed, return package from local repo.
                     tracer.Trace("Site extension {0} with version {1} from {2} already installed.", id, version, feedUrl);
-                    return await GetLocalExtension(id);
-                }
-
-                JsonSettings siteExtensionSettings = GetSettingManager(id);
-
-                if (String.IsNullOrEmpty(feedUrl))
-                {
-                    feedUrl = siteExtensionSettings.GetValue(_feedUrlSetting);
-                }
-
-                SourceRepository remoteRepo = GetRemoteRepository(feedUrl);
-                UIPackageMetadata localPackage = null;
-                UIPackageMetadata repoPackage = null;
-
-                if (string.IsNullOrWhiteSpace(version))
-                {
-                    using (tracer.Step("Version is null, search latest package by id: {0}", id))
-                    {
-                        repoPackage = await remoteRepo.GetLatestPackageById(id);
-                    }
+                    result = await GetLocalExtension(id);
                 }
                 else
                 {
-                    using (tracer.Step("Search package by id: {0} and version: {1}", id, version))
-                    {
-                        repoPackage = await remoteRepo.GetPackageByIdentity(id, version);
-                    }
-                }
+                    JsonSettings siteExtensionSettings = GetSettingManager(id);
 
-                if (repoPackage != null)
-                {
-                    using (tracer.Step("Install package: {0}.", id))
+                    if (String.IsNullOrEmpty(feedUrl))
                     {
-                        string installationDirectory = GetInstallationDirectory(id);
-                        localPackage = await InstallExtension(repoPackage, installationDirectory, feedUrl);
-                        siteExtensionSettings.SetValues(new KeyValuePair<string, JToken>[] {
-                            new KeyValuePair<string, JToken>(_versionSetting, localPackage.Identity.Version.ToNormalizedString()),
-                            new KeyValuePair<string, JToken>(_feedUrlSetting, feedUrl),
-                            new KeyValuePair<string, JToken>(_installUtcTimestampSetting, DateTime.UtcNow.ToString("u"))
-                        });
+                        feedUrl = siteExtensionSettings.GetValue(_feedUrlSetting);
                     }
-                }
 
-                return await ConvertLocalPackageToSiteExtensionInfo(localPackage, checkLatest: true);
+                    SourceRepository remoteRepo = GetRemoteRepository(feedUrl);
+                    UIPackageMetadata localPackage = null;
+                    UIPackageMetadata repoPackage = null;
+
+                    if (string.IsNullOrWhiteSpace(version))
+                    {
+                        using (tracer.Step("Version is null, search latest package by id: {0}", id))
+                        {
+                            repoPackage = await remoteRepo.GetLatestPackageById(id);
+                        }
+                    }
+                    else
+                    {
+                        using (tracer.Step("Search package by id: {0} and version: {1}", id, version))
+                        {
+                            repoPackage = await remoteRepo.GetPackageByIdentity(id, version);
+                        }
+                    }
+
+                    if (repoPackage != null)
+                    {
+                        using (tracer.Step("Install package: {0}.", id))
+                        {
+                            string installationDirectory = GetInstallationDirectory(id);
+                            localPackage = await InstallExtension(repoPackage, installationDirectory, feedUrl);
+                            siteExtensionSettings.SetValues(new KeyValuePair<string, JToken>[] {
+                                new KeyValuePair<string, JToken>(_versionSetting, localPackage.Identity.Version.ToNormalizedString()),
+                                new KeyValuePair<string, JToken>(_feedUrlSetting, feedUrl),
+                                new KeyValuePair<string, JToken>(_installUtcTimestampSetting, DateTime.UtcNow.ToString("u"))
+                            });
+                        }
+                    }
+
+                    result = await ConvertLocalPackageToSiteExtensionInfo(localPackage, checkLatest: true);
+                }
             }
+
+            SiteExtensionArmSettings siteExtensionArmSettings = SiteExtensionArmSettings.GetSettings(_environment.SiteExtensionSettingsPath, id);
+
+            // settings.ProvisioningState = Constants.SiteExtensionProvisioningStateSucceeded;
+            return result;
+        }
+
+        // <inheritdoc />
+        public async Task<SiteExtensionInfo> InitInstallSiteExtension(string id)
+        {
+            SiteExtensionArmSettings settings = SiteExtensionArmSettings.CreateSettingInstance(_environment.SiteExtensionSettingsPath, id);
+            SiteExtensionInfo info = new SiteExtensionInfo();
+            info.Id = id;
+            info.ProvisioningState = settings.ProvisioningState;
+            info.Comment = settings.Comment;
+            return await Task.FromResult(info);
         }
 
         /// <summary>

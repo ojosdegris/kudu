@@ -201,10 +201,25 @@ namespace Kudu.Contracts.SiteExtensions
             set;
         }
 
+        // For Arm Request begins
         [JsonProperty(PropertyName = "name")]
         public string Name
         {
-            get { return this.Id; }
+            get { return Id; }
+        }
+
+        [JsonProperty(PropertyName = "provisioningState")]
+        public string ProvisioningState
+        {
+            get;
+            set;
+        }
+
+        [JsonProperty(PropertyName = "comment")]
+        public string Comment
+        {
+            get;
+            set;
         }
     }
 }

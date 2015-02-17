@@ -19,5 +19,10 @@ namespace Kudu.Contracts.SiteExtensions
         Task<SiteExtensionInfo> InstallExtension(string id, string version, string feedUrl);
 
         Task<bool> UninstallExtension(string id);
+
+        /// <summary>
+        /// Before installing a site extension, create setting file for async operation.
+        /// </summary>
+        Task<SiteExtensionInfo> InitInstallSiteExtension(string id);
     }
 }

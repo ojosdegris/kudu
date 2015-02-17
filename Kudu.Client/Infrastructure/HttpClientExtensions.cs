@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading.Tasks;
-using Kudu.Contracts.SiteExtensions;
 using Newtonsoft.Json;
 
 namespace Kudu.Client.Infrastructure
@@ -103,7 +102,8 @@ namespace Kudu.Client.Infrastructure
                     headerDict.Add(item.Key, item.Value);
                 }
 
-                return (TOutput)HttpResponseResultUtils.CreateHttpResponseResultInstance(outputType, headerDict, bodyObject);
+                // match constructor "HttpResponseResult(IDictionary<string, IEnumerable<string>> headers, T body)"
+                return (TOutput)Activator.CreateInstance(outputType, headerDict, bodyObject);
             }
 
             return JsonConvert.DeserializeObject<TOutput>(content);

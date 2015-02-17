@@ -4,7 +4,6 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
-using System.Web;
 using System.Web.Http;
 using Kudu.Contracts.SiteExtensions;
 using Kudu.Services.Arm;
@@ -67,41 +66,41 @@ namespace Kudu.Services.SiteExtensions
 
             SiteExtensionInfo result;
 
-            try
+            if (ArmUtils.IsArmRequest(Request))
             {
-                result = await _manager.InstallExtension(id, requestInfo.Version, requestInfo.FeedUrl);
-            }
-            catch (WebException e)
-            {
-                // This can happen for example if a bad feed URL is passed
-                throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.BadRequest, "Site extension download failure", e));
-            }
-            catch (Exception e)
-            {
-                // This can happen for example if the exception package is corrupted
-                throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.BadRequest, "Site extension install exception. The package might be invalid.", e));
-            }
+                result = await _manager.InitInstallSiteExtension(id);
 
-            if (result == null)
-            {
-                throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.NotFound, "Could not find " + id));
+                // trigger installation, but do not wait. Expecting caller to poll
+#pragma warning disable 4014
+                _manager.InstallExtension(id, requestInfo.Version, requestInfo.FeedUrl);
+#pragma warning restore 4014
+
+                return Request.CreateResponse(HttpStatusCode.OK, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(result, Request));
             }
-
-            // TODO: xiaowu, when update to real csm async, should return "Accepted" instead of "OK"
-            var responseMessage = Request.CreateResponse(HttpStatusCode.OK, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(result, Request));
-
-            if (result != null  // result not null indicate instalation success, when move to async operation, will relying on provisionState instead
-                && result.InstalledDateTime.HasValue
-                && result.InstalledDateTime.Value > startTime
-                && ArmUtils.IsArmRequest(Request))
+            else
             {
-                // Populate this header if 
-                //      Request is from ARM
-                //      Installation action is performed
-                responseMessage.Headers.Add("X-MS-SITE-OPERATION", Constants.SiteOperationRestart);
-            }
+                try
+                {
+                    result = await _manager.InstallExtension(id, requestInfo.Version, requestInfo.FeedUrl);
+                }
+                catch (WebException e)
+                {
+                    // This can happen for example if a bad feed URL is passed
+                    throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.BadRequest, "Site extension download failure", e));
+                }
+                catch (Exception e)
+                {
+                    // This can happen for example if the exception package is corrupted
+                    throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.BadRequest, "Site extension install exception. The package might be invalid.", e));
+                }
 
-            return responseMessage;
+                if (result == null)
+                {
+                    throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.NotFound, "Could not find " + id));
+                }
+
+                return Request.CreateResponse(HttpStatusCode.OK, result);
+            }
         }
 
         [HttpDelete]

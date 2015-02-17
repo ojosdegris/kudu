@@ -17,6 +17,7 @@ namespace Kudu
         public const string NpmDebugLogFile = "npm-debug.log";
 
         public const string DeploymentCachePath = "deployments";
+        public const string SiteExtensionsCachePath = "siteextensions";
         public const string DeploymentToolsPath = "tools";
         public const string SiteFolder = @"site";
         public const string LogFilesPath = @"LogFiles";
@@ -66,5 +67,10 @@ namespace Kudu
 
         public const string SiteOperationHeaderKey = "X-MS-SITE-OPERATION";
         public const string SiteOperationRestart = "restart";
+
+        public const string SiteExtensionProvisioningStateCreated = "Created";
+        public const string SiteExtensionProvisioningStateAccepted = "Accepted";
+        public const string SiteExtensionProvisioningStateSucceeded = "Succeeded";
+        public const string SiteExtensionProvisioningStateFailed = "Failed";
     }
 }
