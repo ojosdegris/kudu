@@ -50,50 +50,93 @@ namespace Kudu.Services.SiteExtensions
         [HttpGet]
         public async Task<HttpResponseMessage> GetLocalExtension(string id, bool checkLatest = true)
         {
+            SiteExtensionInfo extension = null;
             HttpResponseMessage responseMessage = null;
-            SiteExtensionInfo extension = await _manager.GetLocalExtension(id, checkLatest);
-            SiteExtensionArmSettings armSettings = SiteExtensionArmSettings.GetSettings(_environment.SiteExtensionSettingsPath, id);
-
-            if (extension != null)
+            if (ArmUtils.IsArmRequest(Request))
             {
-                responseMessage = Request.CreateResponse(HttpStatusCode.OK, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(extension, Request));
-                if (ArmUtils.IsArmRequest(Request)
-                    && string.Equals(Constants.SiteExtensionProvisioningStateSucceeded, extension.ProvisioningState, StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(Constants.SiteExtensionOperationInstall, armSettings.Operation, StringComparison.OrdinalIgnoreCase))
+                SiteExtensionArmSettings armSettings = SiteExtensionArmSettings.GetSettings(_environment.SiteExtensionSettingsPath, id);
+                if (!armSettings.IsTerminalStatus() && !string.IsNullOrWhiteSpace(armSettings.Operation))
                 {
-                    // Notify GEO to restart website
-                    responseMessage.Headers.Add(Constants.SiteOperationHeaderKey, Constants.SiteOperationRestart);
-
-                    armSettings.Operation = null;
-                    armSettings.SaveArmSettings();
+                    // some operation is ongoing, return status from setting directly
+                    extension = new SiteExtensionInfo { Id = id };
+                    armSettings.FillSiteExtensionInfo(extension);
+                    responseMessage = Request.CreateResponse(armSettings.Status, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(extension, Request));
                 }
-            }
-            else
-            {
-                extension = new SiteExtensionInfo();
-                extension.Id = id;
-
-                if (ArmUtils.IsArmRequest(Request))
+                else if (armSettings.IsTerminalStatus() && !string.IsNullOrWhiteSpace(armSettings.Operation))
                 {
-                    if (string.IsNullOrWhiteSpace(armSettings.Operation))
+                    // operation just finished
+
+                    if (string.Equals(Constants.SiteExtensionOperationUninstall, armSettings.Operation, StringComparison.OrdinalIgnoreCase))
                     {
+                        extension = new SiteExtensionInfo { Id = id };
+                        armSettings.FillSiteExtensionInfo(extension);
+
+                        if (string.Equals(Constants.SiteExtensionProvisioningStateSucceeded, armSettings.ProvisioningState, StringComparison.OrdinalIgnoreCase))
+                        {
+                            // extension is goine, remove setting file
+                            armSettings.RemoveArmSettings();
+                        }
+
+                        responseMessage = Request.CreateResponse(armSettings.Status, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(extension, Request));
+                    }
+                    else if (string.Equals(Constants.SiteExtensionOperationInstall, armSettings.Operation, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (string.Equals(Constants.SiteExtensionProvisioningStateSucceeded, armSettings.ProvisioningState, StringComparison.OrdinalIgnoreCase))
+                        {
+                            extension = await _manager.GetLocalExtension(id, checkLatest);
+
+                            if (extension == null)
+                            {
+                                // should NOT happen
+                                extension = new SiteExtensionInfo { Id = id };
+                                responseMessage = Request.CreateResponse(HttpStatusCode.NotFound, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(extension, Request));
+                            }
+                            else
+                            {
+                                responseMessage = Request.CreateResponse(armSettings.Status, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(extension, Request));
+                                // Notify GEO to restart website
+                                responseMessage.Headers.Add(Constants.SiteOperationHeaderKey, Constants.SiteOperationRestart);
+                            }
+
+                            // clear operation, since opeation is done
+                            armSettings.Operation = null;
+                            armSettings.SaveArmSettings();
+                        }
+                        else
+                        {
+                            extension = new SiteExtensionInfo { Id = id };
+                            armSettings.FillSiteExtensionInfo(extension);
+                            responseMessage = Request.CreateResponse(armSettings.Status, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(extension, Request));
+                        }
+                    }
+                }
+
+                // normal GET request
+                if (responseMessage == null)
+                {
+                    extension = await _manager.GetLocalExtension(id, checkLatest);
+                    if (extension == null)
+                    {
+                        extension = new SiteExtensionInfo { Id = id };
                         responseMessage = Request.CreateResponse(HttpStatusCode.NotFound, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(extension, Request));
                     }
                     else
                     {
-                        // e.g for delete case
                         armSettings.FillSiteExtensionInfo(extension);
-                        responseMessage = Request.CreateResponse(armSettings.Status, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(extension, Request));
-
-                        armSettings.Operation = null;
-                        armSettings.SaveArmSettings();
+                        responseMessage = Request.CreateResponse(HttpStatusCode.OK, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(extension, Request));
                     }
                 }
-                else
+            }
+            else
+            {
+                extension = await _manager.GetLocalExtension(id, checkLatest);
+
+                if (extension == null)
                 {
-                    // keep the good old behavior
                     throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.NotFound, id));
                 }
+
+                responseMessage = Request.CreateResponse(HttpStatusCode.OK, extension);
             }
 
             return responseMessage;
@@ -137,20 +180,22 @@ namespace Kudu.Services.SiteExtensions
         [HttpDelete]
         public async Task<HttpResponseMessage> UninstallExtension(string id)
         {
+            SiteExtensionInfo result = null;
             if (ArmUtils.IsArmRequest(Request))
             {
+                result = await _manager.InitUninstallSiteExtension(id);
                 // trigger uninstallation, but do not wait. Expecting poll for status.
 #pragma warning disable 4014
                 _manager.UninstallExtension(id);
 #pragma warning restore 4014
 
-                ArmEntry<SiteExtensionInfo> entry = (ArmEntry<SiteExtensionInfo>)ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(new SiteExtensionInfo { Id = id }, Request);
+                ArmEntry<SiteExtensionInfo> entry = (ArmEntry<SiteExtensionInfo>)ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(result, Request);
                 HttpResponseMessage responseMessage = Request.CreateResponse(HttpStatusCode.Accepted, entry);
                 return responseMessage;
             }
             else
             {
-                SiteExtensionInfo result = await _manager.UninstallExtension(id);
+                result = await _manager.UninstallExtension(id);
                 if (string.Equals(Constants.SiteExtensionProvisioningStateFailed, result.ProvisioningState, StringComparison.OrdinalIgnoreCase))
                 {
                     SiteExtensionArmSettings armSettings = SiteExtensionArmSettings.GetSettings(_environment.SiteExtensionSettingsPath, id);

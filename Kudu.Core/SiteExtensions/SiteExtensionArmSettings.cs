@@ -90,11 +90,7 @@ namespace Kudu.Core.SiteExtensions
 
         public static SiteExtensionArmSettings CreateSettingInstance(string rootPath, string id)
         {
-            var settings = new SiteExtensionArmSettings(GetFilePath(rootPath, id));
-            settings.ProvisioningState = Constants.SiteExtensionProvisioningStateCreated;
-            settings.Operation = Constants.SiteExtensionOperationInstall;
-            settings.SaveArmSettings();
-            return settings;
+            return new SiteExtensionArmSettings(GetFilePath(rootPath, id));
         }
 
         public static SiteExtensionArmSettings GetSettings(string rootPath, string id)
@@ -130,6 +126,18 @@ namespace Kudu.Core.SiteExtensions
             {
                 OperationManager.Attempt(() => FileSystemHelpers.DeleteFileSafe(_filePath));
             }
+        }
+
+        public bool IsTerminalStatus()
+        {
+            return string.Equals(Constants.SiteExtensionProvisioningStateSucceeded, ProvisioningState, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(Constants.SiteExtensionProvisioningStateFailed, ProvisioningState, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public bool IsValid()
+        {
+            return !string.IsNullOrWhiteSpace(_cache.Value<string>(_provisioningStateSetting))
+                && !string.IsNullOrWhiteSpace(_cache.Value<string>(_statusSetting));
         }
 
         private static string GetFilePath(string rootPath, string id)

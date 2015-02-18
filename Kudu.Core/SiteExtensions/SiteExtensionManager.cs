@@ -271,6 +271,11 @@ namespace Kudu.Core.SiteExtensions
         public async Task<SiteExtensionInfo> InitInstallSiteExtension(string id)
         {
             SiteExtensionArmSettings settings = SiteExtensionArmSettings.CreateSettingInstance(_environment.SiteExtensionSettingsPath, id);
+            settings.ProvisioningState = Constants.SiteExtensionProvisioningStateCreated;
+            settings.Operation = Constants.SiteExtensionOperationInstall;
+            settings.Status = HttpStatusCode.Created;
+            settings.SaveArmSettings();
+
             SiteExtensionInfo info = new SiteExtensionInfo();
             info.Id = id;
             settings.FillSiteExtensionInfo(info);
@@ -544,6 +549,20 @@ namespace Kudu.Core.SiteExtensions
                 string xdtContent = CreateDefaultXdtFile(relativeUrl, isPreInstalled);
                 OperationManager.Attempt(() => FileSystemHelpers.WriteAllText(xdtPath, xdtContent));
             }
+        }
+
+        public async Task<SiteExtensionInfo> InitUninstallSiteExtension(string id)
+        {
+            SiteExtensionArmSettings settings = SiteExtensionArmSettings.GetSettings(_environment.SiteExtensionSettingsPath, id);
+            settings.ProvisioningState = Constants.SiteExtensionProvisioningStateAccepted;
+            settings.Operation = Constants.SiteExtensionOperationUninstall;
+            settings.Status = HttpStatusCode.Accepted;
+            settings.SaveArmSettings();
+
+            SiteExtensionInfo info = new SiteExtensionInfo();
+            info.Id = id;
+            settings.FillSiteExtensionInfo(info);
+            return await Task.FromResult(info);
         }
 
         public async Task<SiteExtensionInfo> UninstallExtension(string id)
