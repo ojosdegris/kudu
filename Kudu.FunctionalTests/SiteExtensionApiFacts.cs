@@ -71,7 +71,8 @@ namespace Kudu.FunctionalTests
 
                 // uninstall
                 TestTracer.Trace("Uninstall an extension by id: '{0}'", testPackageId);
-                Assert.True(await manager.UninstallExtension(testPackageId));
+                HttpResponseResult<bool> deleteResult = await manager.UninstallExtension<bool>(testPackageId);
+                Assert.True(deleteResult.Body);
             });
         }
 
@@ -100,9 +101,11 @@ namespace Kudu.FunctionalTests
 
                 // clear local extensions
                 results = (await manager.GetLocalExtensions()).ToList();
+                HttpResponseResult<bool> deleteResult = null;
                 foreach (var ext in results)
                 {
-                    Assert.True(await manager.UninstallExtension(ext.Id), "Delete must return true");
+                    deleteResult = await manager.UninstallExtension<bool>(ext.Id);
+                    Assert.True(deleteResult.Body, "Delete must return true");
                 }
 
                 // install/update
@@ -115,12 +118,12 @@ namespace Kudu.FunctionalTests
                 Assert.True(results.Any(), "GetLocalExtensions expects results > 0");
 
                 // get
-                result = await manager.GetLocalExtension(expected.Id);
-                Assert.Equal(expected.Id, result.Id);
+                richResult = await manager.GetLocalExtension<SiteExtensionInfo>(expected.Id);
+                Assert.Equal(expected.Id, richResult.Body.Id);
 
                 // delete
-                var deleted = await manager.UninstallExtension(expected.Id);
-                Assert.True(deleted, "Delete must return true");
+                deleteResult = await manager.UninstallExtension<bool>(expected.Id);
+                Assert.True(deleteResult.Body, "Delete must return true");
 
                 // list installed
                 results = (await manager.GetLocalExtensions()).ToList();
@@ -161,7 +164,7 @@ namespace Kudu.FunctionalTests
                 try
                 {
                     // uninstall package if it is there
-                    await manager.UninstallExtension(testPackageId);
+                    await manager.UninstallExtension<bool>(testPackageId);
                 }
                 catch
                 {
@@ -171,10 +174,7 @@ namespace Kudu.FunctionalTests
                 // install from non-default endpoint
                 TestTracer.Trace("Install package '{0}'-'{1}' fresh from '{2}'.", latestPackage.Id, latestPackage.Version, feedEndpoint);
                 HttpResponseResult<ArmEntry<SiteExtensionInfo>> richResult = await manager.InstallExtension<ArmEntry<SiteExtensionInfo>>(id: testPackageId, version: latestPackage.Version, feedUrl: feedEndpoint);
-                Assert.Equal(latestPackage.Id, richResult.Body.Properties.Id);
-                Assert.Equal(latestPackage.Version, richResult.Body.Properties.Version);
-                Assert.Equal(feedEndpoint, richResult.Body.Properties.FeedUrl);
-                Assert.True(richResult.Headers[Constants.SiteOperationHeaderKey].Contains(Constants.SiteOperationRestart));
+                Assert.True(richResult.Headers.ContainsKey(ArmUtils.GeoLocationHeaderKey));
 
                 TestTracer.Trace("Try to update package '{0}' without given a feed.", testPackageId);
                 // Not passing feed endpoint will default to feed endpoint from installed package
@@ -213,9 +213,11 @@ namespace Kudu.FunctionalTests
 
                 // clear local extensions
                 results = (await manager.GetLocalExtensions()).ToList();
+                HttpResponseResult<bool> deleteResult = null;
                 foreach (var ext in results)
                 {
-                    Assert.True(await manager.UninstallExtension(ext.Id), "Delete must return true");
+                    deleteResult = await manager.UninstallExtension<bool>(ext.Id);
+                    Assert.True(deleteResult.Body, "Delete must return true");
                 }
 
                 // install/update
@@ -228,12 +230,12 @@ namespace Kudu.FunctionalTests
                 Assert.True(results.Any(), "GetLocalExtensions expects results > 0");
 
                 // get
-                result = await manager.GetLocalExtension(expected.Id);
-                Assert.Equal(expected.Id, result.Id);
+                richResult = await manager.GetLocalExtension<SiteExtensionInfo>(expected.Id);
+                Assert.Equal(expected.Id, richResult.Body.Id);
 
                 // delete
-                var deleted = await manager.UninstallExtension(expected.Id);
-                Assert.True(deleted, "Delete must return true");
+                deleteResult = await manager.UninstallExtension<bool>(expected.Id);
+                Assert.True(deleteResult.Body, "Delete must return true");
 
                 // list installed
                 results = (await manager.GetLocalExtensions()).ToList();
@@ -254,7 +256,7 @@ namespace Kudu.FunctionalTests
                 var results = (await manager.GetLocalExtensions()).ToList();
                 foreach (var ext in results)
                 {
-                    await manager.UninstallExtension(ext.Id);
+                    await manager.UninstallExtension<bool>(ext.Id);
                 }
 
                 TestTracer.Trace("Install site extension with jobs");
@@ -276,7 +278,7 @@ namespace Kudu.FunctionalTests
                 Assert.Equal("filecounterwithwebjobs(tjobb)", triggeredJobs[1].Name);
 
                 TestTracer.Trace("Uninstall site extension with jobs");
-                await manager.UninstallExtension("filecounterwithwebjobs");
+                await manager.UninstallExtension<bool>("filecounterwithwebjobs");
 
                 TestTracer.Trace("Verify jobs removed");
                 var continuousJobs2 = (await appManager.JobsManager.ListContinuousJobsAsync()).ToArray();

@@ -1,4 +1,6 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
+using System.Net;
 using Kudu.Contracts.SiteExtensions;
 using Kudu.Core.Infrastructure;
 using Kudu.Core.Settings;
@@ -9,11 +11,13 @@ namespace Kudu.Core.SiteExtensions
     /// <summary>
     /// TODO: locking when read/write settings
     /// </summary>
-    internal class SiteExtensionArmSettings : JsonSettings
+    public class SiteExtensionArmSettings : JsonSettings
     {
         private const string _statusSettingsFileName = "SiteExtensionSetting.json";
-        private const string _provisioningStateStatusSetting = "provisioningState";
-        private const string _commentMessageStatusSetting = "comment";
+        private const string _provisioningStateSetting = "provisioningState";
+        private const string _commentMessageSetting = "comment";
+        private const string _statusSetting = "status";
+        private const string _operationSetting = "operation";
 
         private string _filePath;
         private JObject _cache;
@@ -22,12 +26,12 @@ namespace Kudu.Core.SiteExtensions
         {
             get
             {
-                return _cache.Value<string>(_provisioningStateStatusSetting);
+                return _cache.Value<string>(_provisioningStateSetting);
             }
 
             set
             {
-                _cache[_provisioningStateStatusSetting] = value;
+                _cache[_provisioningStateSetting] = value;
             }
         }
 
@@ -35,12 +39,45 @@ namespace Kudu.Core.SiteExtensions
         {
             get
             {
-                return _cache.Value<string>(_commentMessageStatusSetting);
+                return _cache.Value<string>(_commentMessageSetting);
             }
 
             set
             {
-                _cache[_commentMessageStatusSetting] = value;
+                _cache[_commentMessageSetting] = value;
+            }
+        }
+
+        public HttpStatusCode Status
+        {
+            get
+            {
+                string statusStr = _cache.Value<string>(_statusSetting);
+                HttpStatusCode statusCode = HttpStatusCode.OK;
+                Enum.TryParse<HttpStatusCode>(statusStr, out statusCode);
+                return statusCode;
+            }
+
+            set
+            {
+                _cache[_statusSetting] = Enum.GetName(typeof(HttpStatusCode), value);
+            }
+        }
+
+        /// <summary>
+        /// <para>Property to indicate current operation</para>
+        /// <para>Empty means there is no recent operation</para>
+        /// </summary>
+        public string Operation
+        {
+            get
+            {
+                return _cache.Value<string>(_operationSetting);
+            }
+
+            set
+            {
+                _cache[_operationSetting] = value;
             }
         }
 
@@ -55,6 +92,7 @@ namespace Kudu.Core.SiteExtensions
         {
             var settings = new SiteExtensionArmSettings(GetFilePath(rootPath, id));
             settings.ProvisioningState = Constants.SiteExtensionProvisioningStateCreated;
+            settings.Operation = Constants.SiteExtensionOperationInstall;
             settings.SaveArmSettings();
             return settings;
         }

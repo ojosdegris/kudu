@@ -5,6 +5,8 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using System.Web.Http;
 using Kudu.Contracts.SiteExtensions;
+using Kudu.Core;
+using Kudu.Core.SiteExtensions;
 using Kudu.Services.Arm;
 
 namespace Kudu.Services.SiteExtensions
@@ -12,10 +14,12 @@ namespace Kudu.Services.SiteExtensions
     public class SiteExtensionController : ApiController
     {
         private readonly ISiteExtensionManager _manager;
+        private readonly IEnvironment _environment;
 
-        public SiteExtensionController(ISiteExtensionManager manager)
+        public SiteExtensionController(ISiteExtensionManager manager, IEnvironment environment)
         {
             _manager = manager;
+            _environment = environment;
         }
 
         [HttpGet]
@@ -46,23 +50,50 @@ namespace Kudu.Services.SiteExtensions
         [HttpGet]
         public async Task<HttpResponseMessage> GetLocalExtension(string id, bool checkLatest = true)
         {
-            SiteExtensionInfo extension = await _manager.GetLocalExtension(id, checkLatest);
             HttpResponseMessage responseMessage = null;
+            SiteExtensionInfo extension = await _manager.GetLocalExtension(id, checkLatest);
+            SiteExtensionArmSettings armSettings = SiteExtensionArmSettings.GetSettings(_environment.SiteExtensionSettingsPath, id);
+
             if (extension != null)
             {
                 responseMessage = Request.CreateResponse(HttpStatusCode.OK, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(extension, Request));
                 if (ArmUtils.IsArmRequest(Request)
-                    && string.Equals(Constants.SiteExtensionProvisioningStateSucceeded, extension.ProvisioningState, StringComparison.OrdinalIgnoreCase))
+                    && string.Equals(Constants.SiteExtensionProvisioningStateSucceeded, extension.ProvisioningState, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(Constants.SiteExtensionOperationInstall, armSettings.Operation, StringComparison.OrdinalIgnoreCase))
                 {
                     // Notify GEO to restart website
-                    responseMessage.Headers.Add("X-MS-SITE-OPERATION", Constants.SiteOperationRestart);
+                    responseMessage.Headers.Add(Constants.SiteOperationHeaderKey, Constants.SiteOperationRestart);
+
+                    armSettings.Operation = null;
+                    armSettings.SaveArmSettings();
                 }
             }
             else
             {
                 extension = new SiteExtensionInfo();
                 extension.Id = id;
-                responseMessage = Request.CreateResponse(HttpStatusCode.NotFound, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(extension, Request));
+
+                if (ArmUtils.IsArmRequest(Request))
+                {
+                    if (string.IsNullOrWhiteSpace(armSettings.Operation))
+                    {
+                        responseMessage = Request.CreateResponse(HttpStatusCode.NotFound, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(extension, Request));
+                    }
+                    else
+                    {
+                        // e.g for delete case
+                        armSettings.FillSiteExtensionInfo(extension);
+                        responseMessage = Request.CreateResponse(armSettings.Status, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(extension, Request));
+
+                        armSettings.Operation = null;
+                        armSettings.SaveArmSettings();
+                    }
+                }
+                else
+                {
+                    // keep the good old behavior
+                    throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.NotFound, id));
+                }
             }
 
             return responseMessage;
@@ -80,12 +111,14 @@ namespace Kudu.Services.SiteExtensions
 
             if (ArmUtils.IsArmRequest(Request))
             {
-                // trigger installation, but do not wait. Poll for status.
+                // trigger installation, but do not wait. Expecting poll for status.
 #pragma warning disable 4014
                 _manager.InstallExtension(id, requestInfo.Version, requestInfo.FeedUrl);
 #pragma warning restore 4014
 
-                return Request.CreateResponse(HttpStatusCode.Created, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(result, Request));
+                ArmEntry<SiteExtensionInfo> entry = (ArmEntry<SiteExtensionInfo>)ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(result, Request);
+                HttpResponseMessage responseMessage = Request.CreateResponse(HttpStatusCode.Created, entry);
+                return responseMessage;
             }
             else
             {
@@ -93,14 +126,8 @@ namespace Kudu.Services.SiteExtensions
 
                 if (string.Equals(Constants.SiteExtensionProvisioningStateFailed, result.ProvisioningState, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (string.IsNullOrWhiteSpace(result.Id))
-                    {
-                        throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.NotFound, result.Comment));
-                    }
-                    else
-                    {
-                        throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.BadRequest, result.Comment));
-                    }
+                    SiteExtensionArmSettings armSettings = SiteExtensionArmSettings.GetSettings(_environment.SiteExtensionSettingsPath, id);
+                    throw new HttpResponseException(Request.CreateErrorResponse(armSettings.Status, result.Comment));
                 }
 
                 return Request.CreateResponse(HttpStatusCode.OK, result);
@@ -110,17 +137,24 @@ namespace Kudu.Services.SiteExtensions
         [HttpDelete]
         public async Task<HttpResponseMessage> UninstallExtension(string id)
         {
-            SiteExtensionInfo result = await _manager.UninstallExtension(id);
-
             if (ArmUtils.IsArmRequest(Request))
             {
-                return Request.CreateResponse(HttpStatusCode.Accepted, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(result, Request));
+                // trigger uninstallation, but do not wait. Expecting poll for status.
+#pragma warning disable 4014
+                _manager.UninstallExtension(id);
+#pragma warning restore 4014
+
+                ArmEntry<SiteExtensionInfo> entry = (ArmEntry<SiteExtensionInfo>)ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(new SiteExtensionInfo { Id = id }, Request);
+                HttpResponseMessage responseMessage = Request.CreateResponse(HttpStatusCode.Accepted, entry);
+                return responseMessage;
             }
             else
             {
+                SiteExtensionInfo result = await _manager.UninstallExtension(id);
                 if (string.Equals(Constants.SiteExtensionProvisioningStateFailed, result.ProvisioningState, StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.NotFound, result.Comment));
+                    SiteExtensionArmSettings armSettings = SiteExtensionArmSettings.GetSettings(_environment.SiteExtensionSettingsPath, id);
+                    throw new HttpResponseException(Request.CreateErrorResponse(armSettings.Status, result.Comment));
                 }
 
                 return Request.CreateResponse(

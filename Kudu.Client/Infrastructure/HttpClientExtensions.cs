@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 
@@ -18,11 +19,8 @@ namespace Kudu.Client.Infrastructure
 
         public static async Task<T> GetJsonAsync<T>(this HttpClient client, string url)
         {
-            HttpResponseMessage result = await client.GetAsync(url);
-
-            string content = await result.EnsureSuccessful().Content.ReadAsStringAsync();
-
-            return JsonConvert.DeserializeObject<T>(content);
+            HttpResponseMessage response = await client.GetAsync(url);
+            return await CreateOutputFromResponse<T>(response);
         }
 
         public static async Task<HttpResponseMessage> PostAsync(this HttpClient client)
@@ -88,8 +86,18 @@ namespace Kudu.Client.Infrastructure
         public static async Task<TOutput> PutJsonAsync<TInput, TOutput>(this HttpClient client, string url, TInput param)
         {
             HttpResponseMessage response = await client.PutAsJsonAsync(url, param);
-            string content = await response.EnsureSuccessful().Content.ReadAsStringAsync();
+            return await CreateOutputFromResponse<TOutput>(response);
+        }
 
+        public static async Task<TOutput> DeleteJsonAsync<TOutput>(this HttpClient client, string url)
+        {
+            HttpResponseMessage response = await client.DeleteAsync(url);
+            return await CreateOutputFromResponse<TOutput>(response);
+        }
+
+        private static async Task<TOutput> CreateOutputFromResponse<TOutput>(HttpResponseMessage response)
+        {
+            string content = await response.EnsureSuccessful().Content.ReadAsStringAsync();
             var outputType = typeof(TOutput);
             if (HttpResponseResultUtils.IsTypeOfHttpResponseRresult(outputType))
             {

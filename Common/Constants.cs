@@ -73,6 +73,9 @@ namespace Kudu
         public const string SiteExtensionProvisioningStateSucceeded = "Succeeded";
         public const string SiteExtensionProvisioningStateFailed = "Failed";
 
+        public const string SiteExtensionOperationInstall = "install";
+        public const string SiteExtensionOperationUninstall = "uninstall";
+
         // TODO: need localization?
         public const string SiteExtensionProvisioningStateNotFoundMessageFormat = "'{0}' not found.";
         public const string SiteExtensionProvisioningStateDownloadFailureMessageFormat = "'{0}' download failure.";

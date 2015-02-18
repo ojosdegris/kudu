@@ -209,25 +209,22 @@ namespace Kudu.Core.SiteExtensions
             if (info != null && info.ExtensionUrl != null)
             {
                 tracer.Trace("Pre-installed site extension found: {0}", id);
-                return info;
             }
-
-            UIPackageMetadata package = await _localRepository.GetLatestPackageById(id);
-            if (package == null)
+            else
             {
-                tracer.Trace("No package found from local repo with id: {0}.", id);
-                return null;
+
+                UIPackageMetadata package = await _localRepository.GetLatestPackageById(id);
+                if (package == null)
+                {
+                    tracer.Trace("No package found from local repo with id: {0}.", id);
+                    return null;
+                }
+
+                info = await ConvertLocalPackageToSiteExtensionInfo(package, checkLatest);
             }
 
-            info = await ConvertLocalPackageToSiteExtensionInfo(package, checkLatest);
             SiteExtensionArmSettings armSettings = SiteExtensionArmSettings.GetSettings(_environment.SiteExtensionSettingsPath, id);
             armSettings.FillSiteExtensionInfo(info);
-            if (string.Equals(Constants.SiteExtensionProvisioningStateSucceeded, armSettings.ProvisioningState, StringComparison.OrdinalIgnoreCase))
-            {
-                tracer.Trace("{0} installed, clear provision state.", id);
-                armSettings.ProvisioningState = null;
-                armSettings.SaveArmSettings();
-            }
             return info;
         }
 
@@ -286,6 +283,7 @@ namespace Kudu.Core.SiteExtensions
             ITracer tracer = _traceFactory.GetTracer();
 
             SiteExtensionInfo info = null;
+            HttpStatusCode status = HttpStatusCode.OK;  // final status when success
 
             if (_preInstalledExtensionDictionary.ContainsKey(id))
             {
@@ -350,6 +348,7 @@ namespace Kudu.Core.SiteExtensions
                     info.Id = id;
                     info.ProvisioningState = Constants.SiteExtensionProvisioningStateFailed;
                     info.Comment = string.Format(Constants.SiteExtensionProvisioningStateDownloadFailureMessageFormat, id);
+                    status = HttpStatusCode.BadRequest;
                 }
                 catch (Exception ex)
                 {
@@ -358,6 +357,7 @@ namespace Kudu.Core.SiteExtensions
                     info.Id = id;
                     info.ProvisioningState = Constants.SiteExtensionProvisioningStateFailed;
                     info.Comment = string.Format(Constants.SiteExtensionProvisioningStateInvalidPackageMessageFormat, id);
+                    status = HttpStatusCode.BadRequest;
                 }
             }
 
@@ -366,16 +366,19 @@ namespace Kudu.Core.SiteExtensions
                 info = new SiteExtensionInfo();
                 info.ProvisioningState = Constants.SiteExtensionProvisioningStateFailed;
                 info.Comment = string.Format(Constants.SiteExtensionProvisioningStateNotFoundMessageFormat, id);
+                status = HttpStatusCode.NotFound;
             }
             else if (string.IsNullOrWhiteSpace(info.ProvisioningState))
             {
                 info.ProvisioningState = Constants.SiteExtensionProvisioningStateSucceeded;
             }
 
-            using (tracer.Step("Update Arm setting file"))
+            using (tracer.Step("Update arm settings for {0} installation", id))
             {
                 SiteExtensionArmSettings armSettings = SiteExtensionArmSettings.GetSettings(_environment.SiteExtensionSettingsPath, id);
                 armSettings.ReadSiteExtensionInfo(info);
+                armSettings.Status = status;
+                armSettings.Operation = Constants.SiteExtensionOperationInstall;
                 armSettings.SaveArmSettings();
             }
 
@@ -548,6 +551,7 @@ namespace Kudu.Core.SiteExtensions
             ITracer tracer = _traceFactory.GetTracer();
             string installationDirectory = GetInstallationDirectory(id);
             SiteExtensionInfo info = await GetLocalExtension(id, checkLatest: false);
+            HttpStatusCode status = HttpStatusCode.NoContent;   // final status when success
 
             if (info == null || !FileSystemHelpers.DirectoryExists(info.LocalPath))
             {
@@ -593,29 +597,25 @@ namespace Kudu.Core.SiteExtensions
                     info = new SiteExtensionInfo();
                     info.Id = id;
                     info.ProvisioningState = Constants.SiteExtensionProvisioningStateSucceeded;
+                    status = HttpStatusCode.NoContent;
                 }
                 else
                 {
                     // should NOT happen, after remove package files, package should be gone
                     info.ProvisioningState = Constants.SiteExtensionProvisioningStateFailed;
                     tracer.TraceError("Not able to remove site extension {0}", id);
+                    status = HttpStatusCode.BadRequest;
                 }
             }
 
-            SiteExtensionArmSettings armSettings = SiteExtensionArmSettings.GetSettings(_environment.SiteExtensionSettingsPath, id);
-            if (string.Equals(Constants.SiteExtensionProvisioningStateSucceeded, info.ProvisioningState, StringComparison.OrdinalIgnoreCase))
+            using (tracer.Step("Update arm settings for {0} uninstallation", id))
             {
-                using (tracer.Step("Delete ARM settings"))
-                {
-                    armSettings.RemoveArmSettings();
-                }
-            }
-            else
-            {
+                SiteExtensionArmSettings armSettings = SiteExtensionArmSettings.GetSettings(_environment.SiteExtensionSettingsPath, id);
                 armSettings.ReadSiteExtensionInfo(info);
+                armSettings.Status = status;
+                armSettings.Operation = Constants.SiteExtensionOperationUninstall;
                 armSettings.SaveArmSettings();
             }
-
             return info;
         }
 

@@ -101,7 +101,7 @@ namespace Kudu.Client.SiteExtensions
             return await Client.GetJsonAsync<IEnumerable<SiteExtensionInfo>>(url.ToString());
         }
 
-        public async Task<SiteExtensionInfo> GetLocalExtension(string id, bool checkLatest = true)
+        public async Task<HttpResponseResult<T>> GetLocalExtension<T>(string id, bool checkLatest = true)
         {
             var url = new StringBuilder(ServiceUrl);
             url.Append("siteextensions/");
@@ -113,7 +113,8 @@ namespace Kudu.Client.SiteExtensions
                 url.Append(checkLatest);
             }
 
-            return await Client.GetJsonAsync<SiteExtensionInfo>(url.ToString());
+            UpdateHeaderIfGoingToBeArmRequest(typeof(T));
+            return await Client.GetJsonAsync<HttpResponseResult<T>>(url.ToString());
         }
 
         public async Task<HttpResponseResult<T>> InstallExtension<T>(string id, string version = null, string feedUrl = null)
@@ -126,14 +127,14 @@ namespace Kudu.Client.SiteExtensions
             return await Client.PutJsonAsync<JObject, HttpResponseResult<T>>("siteextensions/" + id, json);
         }
 
-        public async Task<bool> UninstallExtension(string id)
+        public async Task<HttpResponseResult<T>> UninstallExtension<T>(string id)
         {
             var url = new StringBuilder(ServiceUrl);
             url.Append("siteextensions/");
             url.Append(id);
 
-            HttpResponseMessage result = await Client.DeleteAsync(new Uri(url.ToString()));
-            return await result.EnsureSuccessful().Content.ReadAsAsync<bool>();
+            UpdateHeaderIfGoingToBeArmRequest(typeof(T));
+            return await Client.DeleteJsonAsync<HttpResponseResult<T>>(url.ToString());
         }
 
         private bool UpdateHeaderIfGoingToBeArmRequest(Type responseEntryType)

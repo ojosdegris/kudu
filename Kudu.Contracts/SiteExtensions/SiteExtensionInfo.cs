@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Net;
 using Kudu.Contracts.Infrastructure;
 using Newtonsoft.Json;
 using NuGet.Client.VisualStudio;
