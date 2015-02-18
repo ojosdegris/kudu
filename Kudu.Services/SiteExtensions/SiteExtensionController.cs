@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
@@ -45,58 +44,63 @@ namespace Kudu.Services.SiteExtensions
         }
 
         [HttpGet]
-        public async Task<SiteExtensionInfo> GetLocalExtension(string id, bool checkLatest = true)
+        public async Task<HttpResponseMessage> GetLocalExtension(string id, bool checkLatest = true)
         {
             SiteExtensionInfo extension = await _manager.GetLocalExtension(id, checkLatest);
-            if (extension == null)
+            HttpResponseMessage responseMessage = null;
+            if (extension != null)
             {
-                throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.NotFound, id));
+                responseMessage = Request.CreateResponse(HttpStatusCode.OK, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(extension, Request));
+                if (ArmUtils.IsArmRequest(Request)
+                    && string.Equals(Constants.SiteExtensionProvisioningStateSucceeded, extension.ProvisioningState, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Notify GEO to restart website
+                    responseMessage.Headers.Add("X-MS-SITE-OPERATION", Constants.SiteOperationRestart);
+                }
             }
-            return extension;
+            else
+            {
+                extension = new SiteExtensionInfo();
+                extension.Id = id;
+                responseMessage = Request.CreateResponse(HttpStatusCode.NotFound, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(extension, Request));
+            }
+
+            return responseMessage;
         }
 
         [HttpPut]
         public async Task<HttpResponseMessage> InstallExtension(string id, SiteExtensionInfo requestInfo)
         {
-            var startTime = DateTime.UtcNow;
             if (requestInfo == null)
             {
                 requestInfo = new SiteExtensionInfo();
             }
 
-            SiteExtensionInfo result;
+            SiteExtensionInfo result = await _manager.InitInstallSiteExtension(id);
 
             if (ArmUtils.IsArmRequest(Request))
             {
-                result = await _manager.InitInstallSiteExtension(id);
-
-                // trigger installation, but do not wait. Expecting caller to poll
+                // trigger installation, but do not wait. Poll for status.
 #pragma warning disable 4014
                 _manager.InstallExtension(id, requestInfo.Version, requestInfo.FeedUrl);
 #pragma warning restore 4014
 
-                return Request.CreateResponse(HttpStatusCode.OK, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(result, Request));
+                return Request.CreateResponse(HttpStatusCode.Created, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(result, Request));
             }
             else
             {
-                try
-                {
-                    result = await _manager.InstallExtension(id, requestInfo.Version, requestInfo.FeedUrl);
-                }
-                catch (WebException e)
-                {
-                    // This can happen for example if a bad feed URL is passed
-                    throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.BadRequest, "Site extension download failure", e));
-                }
-                catch (Exception e)
-                {
-                    // This can happen for example if the exception package is corrupted
-                    throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.BadRequest, "Site extension install exception. The package might be invalid.", e));
-                }
+                result = await _manager.InstallExtension(id, requestInfo.Version, requestInfo.FeedUrl);
 
-                if (result == null)
+                if (string.Equals(Constants.SiteExtensionProvisioningStateFailed, result.ProvisioningState, StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.NotFound, "Could not find " + id));
+                    if (string.IsNullOrWhiteSpace(result.Id))
+                    {
+                        throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.NotFound, result.Comment));
+                    }
+                    else
+                    {
+                        throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.BadRequest, result.Comment));
+                    }
                 }
 
                 return Request.CreateResponse(HttpStatusCode.OK, result);
@@ -104,15 +108,24 @@ namespace Kudu.Services.SiteExtensions
         }
 
         [HttpDelete]
-        public async Task<bool> UninstallExtension(string id)
+        public async Task<HttpResponseMessage> UninstallExtension(string id)
         {
-            try
+            SiteExtensionInfo result = await _manager.UninstallExtension(id);
+
+            if (ArmUtils.IsArmRequest(Request))
             {
-                return await _manager.UninstallExtension(id);
+                return Request.CreateResponse(HttpStatusCode.Accepted, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(result, Request));
             }
-            catch (DirectoryNotFoundException ex)
+            else
             {
-                throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.NotFound, ex));
+                if (string.Equals(Constants.SiteExtensionProvisioningStateFailed, result.ProvisioningState, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.NotFound, result.Comment));
+                }
+
+                return Request.CreateResponse(
+                    HttpStatusCode.OK,
+                    string.Equals(Constants.SiteExtensionProvisioningStateSucceeded, result.ProvisioningState, StringComparison.OrdinalIgnoreCase));
             }
         }
     }

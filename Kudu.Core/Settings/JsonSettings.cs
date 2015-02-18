@@ -76,7 +76,7 @@ namespace Kudu.Core.Settings
             return false;
         }
 
-        private JObject Read()
+        protected JObject Read()
         {
             if (!FileSystemHelpers.FileExists(_path))
             {
@@ -91,7 +91,7 @@ namespace Kudu.Core.Settings
             }
         }
 
-        private void Save(JObject json)
+        protected void Save(JObject json)
         {
             if (!FileSystemHelpers.FileExists(_path))
             {

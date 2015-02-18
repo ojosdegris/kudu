@@ -102,8 +102,7 @@ namespace Kudu.Client.Infrastructure
                     headerDict.Add(item.Key, item.Value);
                 }
 
-                // match constructor "HttpResponseResult(IDictionary<string, IEnumerable<string>> headers, T body)"
-                return (TOutput)Activator.CreateInstance(outputType, headerDict, bodyObject);
+                return (TOutput)HttpResponseResultUtils.CreateHttpResponseResultInstance(outputType, headerDict, bodyObject);
             }
 
             return JsonConvert.DeserializeObject<TOutput>(content);

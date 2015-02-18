@@ -72,5 +72,10 @@ namespace Kudu
         public const string SiteExtensionProvisioningStateAccepted = "Accepted";
         public const string SiteExtensionProvisioningStateSucceeded = "Succeeded";
         public const string SiteExtensionProvisioningStateFailed = "Failed";
+
+        // TODO: need localization?
+        public const string SiteExtensionProvisioningStateNotFoundMessageFormat = "'{0}' not found.";
+        public const string SiteExtensionProvisioningStateDownloadFailureMessageFormat = "'{0}' download failure.";
+        public const string SiteExtensionProvisioningStateInvalidPackageMessageFormat = "Invalid '{0}' package.";
     }
 }

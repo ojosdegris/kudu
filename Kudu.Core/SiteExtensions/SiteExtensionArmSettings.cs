@@ -1,5 +1,8 @@
 ﻿using System.IO;
+using Kudu.Contracts.SiteExtensions;
+using Kudu.Core.Infrastructure;
 using Kudu.Core.Settings;
+using Newtonsoft.Json.Linq;
 
 namespace Kudu.Core.SiteExtensions
 {
@@ -13,20 +16,18 @@ namespace Kudu.Core.SiteExtensions
         private const string _commentMessageStatusSetting = "comment";
 
         private string _filePath;
-        private SiteExtensionArmSettings _cache;
+        private JObject _cache;
 
         public string ProvisioningState
         {
             get
             {
-                EnsureCache();
-                return _cache.GetValue(_provisioningStateStatusSetting);
+                return _cache.Value<string>(_provisioningStateStatusSetting);
             }
 
             set
             {
-                EnsureCache();
-                _cache.SetValue(_provisioningStateStatusSetting, value);
+                _cache[_provisioningStateStatusSetting] = value;
             }
         }
 
@@ -34,14 +35,12 @@ namespace Kudu.Core.SiteExtensions
         {
             get
             {
-                EnsureCache();
-                return _cache.GetValue(_commentMessageStatusSetting);
+                return _cache.Value<string>(_commentMessageStatusSetting);
             }
 
             set
             {
-                EnsureCache();
-                _cache.SetValue(_commentMessageStatusSetting, value);
+                _cache[_commentMessageStatusSetting] = value;
             }
         }
 
@@ -49,12 +48,14 @@ namespace Kudu.Core.SiteExtensions
             : base(path)
         {
             _filePath = path;
+            _cache = base.Read();
         }
 
         public static SiteExtensionArmSettings CreateSettingInstance(string rootPath, string id)
         {
             var settings = new SiteExtensionArmSettings(GetFilePath(rootPath, id));
-            settings.SetValue(_provisioningStateStatusSetting, Constants.SiteExtensionProvisioningStateCreated);
+            settings.ProvisioningState = Constants.SiteExtensionProvisioningStateCreated;
+            settings.SaveArmSettings();
             return settings;
         }
 
@@ -63,16 +64,33 @@ namespace Kudu.Core.SiteExtensions
             return new SiteExtensionArmSettings(GetFilePath(rootPath, id));
         }
 
-        public void RefreshCache()
+        public void RefreshArmSettingsCache()
         {
-            _cache = new SiteExtensionArmSettings(_filePath);
+            _cache = base.Read();
         }
 
-        private void EnsureCache()
+        public void SaveArmSettings()
         {
-            if (_cache == null)
+            base.Save(_cache);
+        }
+
+        public void FillSiteExtensionInfo(SiteExtensionInfo info)
+        {
+            info.ProvisioningState = ProvisioningState;
+            info.Comment = Comment;
+        }
+
+        public void ReadSiteExtensionInfo(SiteExtensionInfo info)
+        {
+            ProvisioningState = info.ProvisioningState;
+            Comment = info.Comment;
+        }
+
+        public void RemoveArmSettings()
+        {
+            if (FileSystemHelpers.FileExists(_filePath))
             {
-                _cache = new SiteExtensionArmSettings(_filePath);
+                OperationManager.Attempt(() => FileSystemHelpers.DeleteFileSafe(_filePath));
             }
         }
 
