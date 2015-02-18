@@ -90,17 +90,20 @@ namespace Kudu.Services.SiteExtensions
                                 // should NOT happen
                                 extension = new SiteExtensionInfo { Id = id };
                                 responseMessage = Request.CreateResponse(HttpStatusCode.NotFound, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(extension, Request));
+
+                                // package is gone, remove setting file
+                                armSettings.RemoveArmSettings();
                             }
                             else
                             {
                                 responseMessage = Request.CreateResponse(armSettings.Status, ArmUtils.AddEnvelopeOnArmRequest<SiteExtensionInfo>(extension, Request));
                                 // Notify GEO to restart website
                                 responseMessage.Headers.Add(Constants.SiteOperationHeaderKey, Constants.SiteOperationRestart);
-                            }
 
-                            // clear operation, since opeation is done
-                            armSettings.Operation = null;
-                            armSettings.SaveArmSettings();
+                                // clear operation, since opeation is done
+                                armSettings.Operation = null;
+                                armSettings.SaveArmSettings();
+                            }
                         }
                         else
                         {
